@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Project Specific
+dataset/
+malaria_yolo/
+!malaria_yolo/run5_production/weights/best.py
+# actually we will copy best.pt to a models dir, so ignore all of malaria_yolo
+
+# Large Files
+*.zip
+*.tar
+*.gz
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

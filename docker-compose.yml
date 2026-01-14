@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # The Backend Service (FastAPI)
+  backend:
+    build: .
+    container_name: malaria_backend
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./malaria_yolo:/app/malaria_yolo # Persist model weights
+      - ./dataset:/app/dataset # Persist data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # The Frontend Service (Streamlit)
+  frontend:
+    build: .
+    container_name: malaria_frontend
+    command: streamlit run src/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://backend:8000/predict # Docker internal networking
+    depends_on:
+      - backend

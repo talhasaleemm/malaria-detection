@@ -1,0 +1,15 @@
+ultralytics
+fastapi
+uvicorn
+python-multipart
+tensorflow
+tensorflow-datasets
+streamlit
+albumentations
+opencv-python-headless
+numpy
+matplotlib
+Pillow
+# Torch (CPU version recommended for default install, user can swap for GPU)
+torch
+torchvision
