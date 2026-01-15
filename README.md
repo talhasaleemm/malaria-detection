@@ -31,20 +31,21 @@ The model was evaluated on a held-out test set of **50 Raw NIH Malaria infected 
 
 ---
 
+## 🎥 System Demo
+![System Demo](assets/malaria_demo_final.webp)
+*Watch the system detect malaria parasites in real-time, showing accurate bounding box labels.*
+
 ## 🧬 Training Data Strategy (The "Secret Sauce")
-This model was trained **Entirely on Synthetic Data**, solving the data scarcity problem.
+This model was trained **Entirely on Synthetic Data**, solving the data scarcity problem while ensuring **perfect labeling**.
 
 1.  **Source**: We used single-cell crops from the standard [NIH Malaria Dataset](https://lhncbc.nlm.nih.gov/LHC-publications/pubs/MalariaDatasets.html).
-2.  **Synthesis Pipeline**:
+2.  **Synthesis Pipeline & Auto-Labeling**:
     *   **Canvas**: 640x640px digital "microscopy slides".
-    *   **Poisson Blending**: Cells are organically blended into the background to prevent "cut-and-paste" artifacts.
+    *   **Auto-Labeling**: Since we generate the images programmatically, we generate **100% accurate bounding box labels** automatically, eliminating human error.
+    *   **Poisson Blending**: Cells are organically blended into the background.
     *   **Optical Simulation**: Artificial vignetting (dark corners) added to mimic microscope optics.
     *   **Augmentation**: Random rotation, scaling, and color jitter.
-3.  **Result**: The model learned to detect parasites by feature, not by edge artifacts, enabling it to generalize to real images.
-
-## 🎥 System Demo
-![System Demo](assets/malaria_demo_v2.webp)
-*Watch the system detect malaria parasites in real-time.*
+3.  **Result**: The model learned to detect parasites by feature, not by edge artifacts.
 
 ## 🚀 Quick Start (Docker)
 The easiest way to run the system is via Docker Compose.
