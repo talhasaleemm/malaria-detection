@@ -89,4 +89,4 @@ The model relies on synthetic composites for training but achieves **Clinical Va
 - **Validation Scale**: Raw NIH Crops (~200px) -> Normalized to ~40px for inference.
 
 ---
-*Powered by Ultralytics YOLO, FastAPI, and Streamlit.*
+*Powered by Ultralytics YOLO, FastAPI, and Streamlit. © 2026*
