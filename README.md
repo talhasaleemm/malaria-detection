@@ -43,7 +43,7 @@ This model was trained **Entirely on Synthetic Data**, solving the data scarcity
 3.  **Result**: The model learned to detect parasites by feature, not by edge artifacts, enabling it to generalize to real images.
 
 ## 🎥 System Demo
-![System Demo](assets/demo.webp)
+![System Demo](assets/malaria_demo_v2.webp)
 *Watch the system detect malaria parasites in real-time.*
 
 ## 🚀 Quick Start (Docker)
