@@ -1,5 +1,43 @@
 import cv2
 import os
+from PIL import Image
+
+def make_gif(input_path, output_path, target_width=480, fps=10):
+    cap = cv2.VideoCapture(input_path)
+    frames = []
+    
+    frame_count = 0
+    step = int(cap.get(cv2.CAP_PROP_FPS) / fps)
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        if frame_count % step == 0:
+            # Resize
+            height = int(frame.shape[0] * (target_width / frame.shape[1]))
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(frame_rgb)
+            pil_img = pil_img.resize((target_width, height), Image.Resampling.LANCZOS)
+            # Quantize to reduce size
+            pil_img = pil_img.quantize(colors=128, method=2)
+            frames.append(pil_img)
+            
+        frame_count += 1
+        
+    cap.release()
+    
+    if frames:
+        frames[0].save(
+            output_path,
+            save_all=True,
+            append_images=frames[1:],
+            optimize=True,
+            duration=int(1000/fps),
+            loop=0
+        )
+        print("GIF saved: {} ({:.2f} MB)".format(output_path, os.path.getsize(output_path)/1024/1024))
 
 def compress_video(input_path, output_path, target_width=None, target_fps=15):
     if not os.path.exists(input_path):
@@ -76,5 +114,10 @@ def compress_video(input_path, output_path, target_width=None, target_fps=15):
 if __name__ == "__main__":
     input_video = "../assets/demo-malaria.mp4"
     output_video = "../assets/demo-malaria-optimized.mp4"
-    # Target 640px width (standard for fast web loading) and 15fps
-    compress_video(input_video, output_video, target_width=640, target_fps=15)
+    output_gif = "../assets/demo-malaria.gif"
+    
+    # 1. Aggressive Video Compression (480p, 12fps) -> Target < 3MB
+    compress_video(input_video, output_video, target_width=480, target_fps=12)
+    
+    # 2. Convert to GIF for README (480p, 8fps)
+    make_gif(output_video, output_gif, target_width=480, fps=8)
