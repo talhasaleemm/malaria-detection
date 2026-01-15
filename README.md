@@ -32,7 +32,7 @@ The model was evaluated on a held-out test set of **50 Raw NIH Malaria infected 
 ---
 
 ## 🎥 System Demo
-![System Demo](assets/malaria_demo_final.webp)
+![System Demo](assets/demo.mp4)
 *Watch the system detect malaria parasites in real-time, showing accurate bounding box labels.*
 
 ## 🧬 Training Data Strategy (The "Secret Sauce")
