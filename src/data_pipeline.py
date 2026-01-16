@@ -115,6 +115,25 @@ class CellCompositor:
         # Darken corners
         canvas = (canvas * mask).astype(np.uint8)
         
+        # Add Debris / Distractors (Dust, Stain artifacts)
+        # This forces the model to learn that "dark spot" != "parasite"
+        num_debris = random.randint(5, 15)
+        for _ in range(num_debris):
+            # Random darkish color (purple/black/dark blue)
+            color = np.random.randint(50, 150, 3).tolist() 
+            x_d = random.randint(0, self.canvas_size[1])
+            y_d = random.randint(0, self.canvas_size[0])
+            
+            if random.random() > 0.5:
+                # Draw small circle (dust)
+                r = random.randint(1, 4)
+                cv2.circle(canvas, (x_d, y_d), r, color, -1)
+            else:
+                # Draw small line (fiber)
+                x2_d = x_d + random.randint(-10, 10)
+                y2_d = y_d + random.randint(-10, 10)
+                cv2.line(canvas, (x_d, y_d), (x2_d, y2_d), color, 1)
+
         return canvas
 
     def random_rotate(self, image):
@@ -195,7 +214,8 @@ class CellCompositor:
                     roi[mask_bool] = cell_img[mask_bool]
                     canvas[y_pos:y_pos+h, x_pos:x_pos+w] = roi
                 else:
-                    canvas = cv2.seamlessClone(cell_img, canvas, mask, center, cv2.NORMAL_CLONE)
+                    # MIXED_CLONE is Key: preserves dark spots (parasites) better than NORMAL_CLONE
+                    canvas = cv2.seamlessClone(cell_img, canvas, mask, center, cv2.MIXED_CLONE)
             except Exception as e:
                 # Fallback
                 roi = canvas[y_pos:y_pos+h, x_pos:x_pos+w]

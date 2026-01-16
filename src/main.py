@@ -1,5 +1,6 @@
-from fastapi import FastAPI, UploadFile, File
-from ultralytics import YOLO
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
+# from ultralytics import YOLO # SAHI wraps this
 import uvicorn
 import numpy as np
 import cv2
@@ -7,15 +8,22 @@ import io
 import os
 from PIL import Image
 
+# SAHI Imports
+from sahi import AutoDetectionModel
+from sahi.predict import get_sliced_prediction
+
 app = FastAPI(title="Malaria Detection API")
 
 # Load model (lazy loading on startup)
-model = None
+detection_model = None
 
 def find_best_model():
     """Finds the most recent/best model in the malaria_yolo project directory."""
     base_dir = os.path.join("..", "malaria_yolo")
     if not os.path.exists(base_dir):
+        # Fallback to current directory for dev
+        if os.path.exists("yolo11m.pt"): return "yolo11m.pt"
+        if os.path.exists("yolo11n.pt"): return "yolo11n.pt"
         return None
     
     # Check runs: run1, run2, run3_final ...
@@ -30,90 +38,30 @@ def find_best_model():
 
 @app.on_event("startup")
 def load_model():
-    global model
+    global detection_model
     try:
         model_path = find_best_model()
         if model_path:
-            model = YOLO(model_path)
-            print(f"Loaded tailored model from {model_path}")
+            print(f"Loading SAHI wrapper for model: {model_path}")
+            detection_model = AutoDetectionModel(
+                model_type="yolov8", # SAHI support for v8/v11 is via 'yolov8'
+                model_path=model_path,
+                confidence_threshold=0.25,
+                device="cpu" # or 'cuda'
+            )
+            print("Model loaded successfully.")
         else:
-             raise FileNotFoundError("No custom trained model found in malaria_yolo/")
+             print("WARNING: No trained model found. Waiting for training...")
     except Exception as e:
         print(f"CRITICAL ERROR: System cannot start safely.")
         print(e)
-        raise e
-
-import torch
-from torchvision.ops import nms
-
-def non_max_suppression_fast(boxes, overlapThresh):
-    """
-    Standard Non-Maximum Suppression (NMS) using Torchvision (GPU/CPU optimized).
-    boxes: list of [x, y, w, h, score, class_id] (all float/int)
-    """
-    if len(boxes) == 0:
-        return []
-
-    # Convert to Tensor
-    boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
-    
-    if boxes_tensor.numel() == 0:
-        return []
-        
-    # xywh -> xyxy
-    x = boxes_tensor[:, 0]
-    y = boxes_tensor[:, 1]
-    w = boxes_tensor[:, 2]
-    h = boxes_tensor[:, 3]
-    scores = boxes_tensor[:, 4]
-    class_ids = boxes_tensor[:, 5]
-    
-    x1 = x - w/2
-    y1 = y - h/2
-    x2 = x + w/2
-    y2 = y + h/2
-    
-    # Stack for NMS: (N, 4)
-    boxes_xyxy = torch.stack((x1, y1, x2, y2), dim=1)
-    
-    # Torchvision NMS is class-agnostic by default.
-    # To make it Class-Aware, we offset boxes by class_id * max_coordinate
-    # This effectively separates classes in coordinate space.
-    max_coordinate = boxes_xyxy.max() + 5000
-    offsets = class_ids * max_coordinate
-    boxes_for_nms = boxes_xyxy + offsets[:, None]
-    
-    keep_indices = nms(boxes_for_nms, scores, overlapThresh)
-    
-    # Return matched boxes
-    final_picks = boxes_tensor[keep_indices].tolist()
-    return final_picks
-
-def slice_image(image_np, tile_size=640, overlap=0.25): # Increased overlap for safety
-    """
-    Slices a large image into tiles with overlap.
-    Returns: list of (tile, x_offset, y_offset)
-    """
-    h, w, _ = image_np.shape
-    step = int(tile_size * (1 - overlap))
-    tiles = []
-    
-    for y in range(0, h, step):
-        for x in range(0, w, step):
-            # Calculate coords
-            x2 = min(x + tile_size, w)
-            y2 = min(y + tile_size, h)
-            x1 = max(0, x2 - tile_size) # Adjust back if at edge
-            y1 = max(0, y2 - tile_size)
-            
-            tile = image_np[y1:y2, x1:x2]
-            tiles.append((tile, x1, y1))
-            
-    return tiles
+        # Don't raise, let it start so we can fix it if needed? No, fail hard usually better.
+        # But for dev, we might want to stay up.
+        pass
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    if model is None:
+    if detection_model is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     # Read image
@@ -121,44 +69,44 @@ async def predict(file: UploadFile = File(...)):
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     img_np = np.array(image)
     
-    h, w, c = img_np.shape
-    raw_detections = []
+    # SAHI Inference (Async/Non-blocking)
+    # slice_height/width 640 is standard YOLO input
+    # overlap_height_ratio 0.2 is generic good starting point
     
-    # Check if image is large (e.g., > 1000px) -> Use Tiling
-    if h > 1000 or w > 1000:
-        print(f"Large image detected ({w}x{h}). Using Tiling Inference.")
-        tiles = slice_image(img_np)
-        
-        for tile, x_off, y_off in tiles:
-            results = model(tile, verbose=False)
-            for result in results:
-                for box in result.boxes:
-                    # LOCAL bbox (center x, center y, w, h)
-                    lx, ly, lw, lh = box.xywh.tolist()[0]
-                    
-                    # GLOBAL bbox
-                    # Center simply shifts by offset
-                    gx = lx + x_off
-                    gy = ly + y_off
-                    
-                    raw_detections.append([gx, gy, lw, lh, float(box.conf), int(box.cls)])
-    else:
-        # Standard Inference
-        results = model(img_np)
-        for result in results:
-            for box in result.boxes:
-                raw_detections.append([*box.xywh.tolist()[0], float(box.conf), int(box.cls)])
-                
-    # Apply Global NMS to merged detections
-    # IoU threshold 0.3 to remove overlapping duplicates from tiles
-    final_boxes = non_max_suppression_fast(raw_detections, 0.3)
+    result = await run_in_threadpool(
+        get_sliced_prediction,
+        image_np=img_np,
+        detection_model=detection_model,
+        slice_height=640,
+        slice_width=640,
+        overlap_height_ratio=0.2,
+        overlap_width_ratio=0.2
+    )
+
+    object_prediction_list = result.object_prediction_list
     
     detections = []
-    for box in final_boxes:
+    for pred in object_prediction_list:
+        # SAHI bbox is [minx, miny, maxx, maxy]
+        bbox = pred.bbox
+        x1, y1, x2, y2 = bbox.minx, bbox.miny, bbox.maxx, bbox.maxy
+        
+        # Convert to Center-XYWH for frontend compatibility (or keep xyxy and update frontend? 
+        # App.py expects: x, y, w, h which it thinks is Center?
+        # Let's check App.py again.
+        # Main.py OLD: [gx, gy, lw, lh] -> returned as "bbox": [cx, cy, w, h]
+        # App.py: x, y, w, h = det['bbox']
+        # start = (x - w/2) -> implies X is Center.
+        
+        w = x2 - x1
+        h = y2 - y1
+        cx = x1 + w/2
+        cy = y1 + h/2
+        
         detections.append({
-            "bbox": [box[0], box[1], box[2], box[3]], # cx, cy, w, h
-            "confidence": box[4],
-            "class": int(box[5])
+            "bbox": [cx, cy, w, h], 
+            "confidence": pred.score.value,
+            "class": pred.category.id
         })
             
     return {"detections": detections}

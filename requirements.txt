@@ -13,3 +13,4 @@ Pillow
 # Torch (CPU version recommended for default install, user can swap for GPU)
 torch
 torchvision
+sahi

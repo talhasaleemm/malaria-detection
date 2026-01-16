@@ -8,18 +8,18 @@ def validate_real():
     model_path = os.path.join("..", "malaria_yolo", "run5_production", "weights", "best.pt")
     
     if not os.path.exists(model_path):
-        print(f"Warning: Specific run5 model not found at {model_path}")
+        print("Warning: Specific run5 model not found at {}".format(model_path))
         # Try dynamic find
         base_dir = os.path.join("..", "malaria_yolo")
         runs = sorted([d for d in os.listdir(base_dir) if d.startswith('run')], reverse=True)
         if runs:
             model_path = os.path.join(base_dir, runs[0], "weights", "best.pt")
-            print(f"Using latest model: {model_path}")
+            print("Using latest model: {}".format(model_path))
         else:
             print("Error: No models found.")
             return
 
-    print(f"Loading model: {model_path}")
+    print("Loading model: {}".format(model_path))
     model = YOLO(model_path)
     
     # 2. Update yaml to ensure 'test' path is correct
@@ -55,7 +55,7 @@ def validate_real():
             f.write("\n".join(new_lines))
         print("Updated dataset.yaml to point 'test' to 'images/test'.")
 
-    print(f"Validating on REAL WORLD data (images/test) using split='test'...")
+    print("Validating on REAL WORLD data (images/test) using split='test'...")
     
     # 3. Run Validation
     try:
@@ -68,16 +68,16 @@ def validate_real():
         )
         
         print("\n" + "="*40)
-        print(f"REAL WORLD VALIDATION RESULTS")
+        print("REAL WORLD VALIDATION RESULTS")
         print("="*40)
-        print(f"mAP50-95 : {metrics.box.map:.4f}")
-        print(f"mAP50    : {metrics.box.map50:.4f}")
-        print(f"Recall   : {metrics.box.r.mean():.4f}") # Mean recall
-        print(f"Precision: {metrics.box.p.mean():.4f}")
+        print("mAP50-95 : {:.4f}".format(metrics.box.map))
+        print("mAP50    : {:.4f}".format(metrics.box.map50))
+        print("Recall   : {:.4f}".format(metrics.box.r.mean())) # Mean recall
+        print("Precision: {:.4f}".format(metrics.box.p.mean()))
         print("="*40 + "\n")
         
     except Exception as e:
-        print(f"Validation failed: {e}")
+        print("Validation failed: {}".format(e))
 
 if __name__ == "__main__":
     validate_real()

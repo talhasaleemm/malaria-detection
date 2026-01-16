@@ -3,7 +3,7 @@ import os
 
 def train_model():
     # Load a model
-    model = YOLO("yolo11n.pt")  # load a pretrained model (recommended for training)
+    model = YOLO("yolo11m.pt")  # load a pretrained model (Medium - Stronger than Nano)
 
     # Train the model
     # We assume 'dataset/dataset.yaml' exists in root, so ../dataset/dataset.yaml
@@ -25,7 +25,7 @@ def train_model():
         scale=0.1,    
         fliplr=0.5,
         flipud=0.5, 
-        mosaic=0.0,   # DISABLE MOSAIC
+        close_mosaic=10, # IMPORTANT: Disable mosaic for the last 10 epochs
         mixup=0.0     
     )
     
