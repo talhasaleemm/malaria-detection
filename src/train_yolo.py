@@ -6,8 +6,9 @@ def train_model():
     model = YOLO("yolo11m.pt")  # load a pretrained model (Medium - Stronger than Nano)
 
     # Train the model
-    # We assume 'dataset/dataset.yaml' exists in root, so ../dataset/dataset.yaml
-    dataset_yaml = os.path.abspath(os.path.join("..", "dataset", "dataset.yaml"))
+    # Use script directory to reliably find dataset path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    dataset_yaml = os.path.join(script_dir, "..", "dataset", "dataset.yaml")
     
     print(f"Starting training using config: {dataset_yaml}")
     

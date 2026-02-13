@@ -90,57 +90,112 @@ with tab1:
                     st.error(f"Connection Error: {e}. Is the FastAPI backend running?")
 
 with tab2:
-    st.header("Upload Microscopic Video")
-    uploaded_video = st.file_uploader("Choose a video...", type=["mp4", "avi", "mov"])
+    st.header("🎥 Video Detection & Download")
+    st.markdown("Upload a microscopy video to detect parasites frame-by-frame and download the annotated result.")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        uploaded_video = st.file_uploader("Choose a video...", type=["mp4", "avi", "mov"])
+        
+        # Video processing settings
+        video_confidence_threshold = st.slider(
+            "Detection Confidence Threshold", 
+            min_value=0.0, 
+            max_value=1.0, 
+            value=0.25, 
+            step=0.05,
+            key="video_conf"
+        )
+        
+        # Model selection
+        model_options = {
+            "YOLOv11 Medium (Recommended)": "yolo11m.pt",
+            "YOLOv11 Nano (Faster)": "yolo11n.pt"
+        }
+        selected_model = st.selectbox("Select Model", list(model_options.keys()))
+        model_path = model_options[selected_model]
     
     if uploaded_video is not None:
-        # Save temp file
-        tfile = tempfile.NamedTemporaryFile(delete=False) 
-        tfile.write(uploaded_video.read())
+        # Read the uploaded video bytes once (to avoid stream consumption issues)
+        uploaded_video_bytes = uploaded_video.read()
         
-        vf = cv2.VideoCapture(tfile.name)
-        stframe = st.empty()
+        with col1:
+            st.video(uploaded_video_bytes)
+            st.caption("Preview: Original Uploaded Video")
         
-        while vf.isOpened():
-            ret, frame = vf.read()
-            if not ret:
-                break
-            
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(frame_rgb)
-            
-            # Send to API (Frame by Frame - POC)
-            # Optimization: Skip frames or resize
-            try:
-                img_bytes = io.BytesIO()
-                pil_img.save(img_bytes, format='JPEG')
-                img_bytes.seek(0)
-                
-                files = {'file': ('frame.jpg', img_bytes, 'image/jpeg')}
-                # Use longer timeout for video frames if needed
-                response = requests.post(API_URL, files=files, timeout=5)
-                
-                if response.status_code == 200:
-                        results = response.json()
-                        detections = results.get("detections", [])
+        # Process button
+        if st.button("🔬 Process Video", type="primary"):
+            with st.spinner("Processing video... This may take a few minutes depending on video length."):
+                try:
+                    # Import video processor
+                    from video_processor import VideoProcessor
+                    
+                    # Save uploaded video to temporary file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_input:
+                        tmp_input.write(uploaded_video_bytes)
+                        input_path = tmp_input.name
+                    
+                    # Create output path
+                    output_path = tempfile.NamedTemporaryFile(delete=False, suffix='_processed.mp4').name
+                    
+                    # Initialize video processor
+                    processor = VideoProcessor(model_path, video_confidence_threshold)
+                    
+                    # Get video info first
+                    video_info = processor.extract_video_info(input_path)
+                    st.info(f"📹 Video Info: {video_info['frame_count']} frames, {video_info['fps']} FPS, {video_info['duration_seconds']:.1f}s duration")
+                    
+                    # Create progress bar
+                    progress_bar = st.progress(0)
+                    progress_text = st.empty()
+                    
+                    def update_progress(current, total):
+                        progress = current / total
+                        progress_bar.progress(progress)
+                        progress_text.text(f"Processing frame {current}/{total} ({progress*100:.1f}%)")
+                    
+                    # Process video
+                    stats = processor.process_video(input_path, output_path, progress_callback=update_progress)
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    progress_text.empty()
+                    
+                    # Show results in col2
+                    with col2:
+                        st.success("✅ Video Processing Complete!")
                         
-                        for det in detections:
-                            cls = det['class']
-                            conf = det['confidence']
-                            x, y, w, h = det['bbox']
-                            
-                            # Fixed threshold for video to avoid flickering or add slider here too
-                            if conf < 0.25: continue
-                                
-                            start_point = (int(x - w/2), int(y - h/2))
-                            end_point = (int(x + w/2), int(y + h/2))
-                            
-                            color = (255, 0, 0) if cls == 0 else (0, 255, 0)
-                            cv2.rectangle(frame_rgb, start_point, end_point, color, 2)
-            except:
-                pass # Skip errors for smooth playback
-                
-            stframe.image(frame_rgb, caption='Real-time Analysis')
-            
-        vf.release()
+                        # Display statistics
+                        st.metric("Total Parasites Detected", stats['total_parasites'])
+                        st.metric("Average Parasites/Frame", f"{stats['avg_parasites_per_frame']:.2f}")
+                        st.metric("Total Frames Processed", stats['total_frames'])
+                        
+                        # Show processed video
+                        with open(output_path, 'rb') as video_file:
+                            video_bytes = video_file.read()
+                        
+                        st.video(video_bytes)
+                        st.caption("Preview: Processed Video with Detections")
+                        
+                        # Download button
+                        st.download_button(
+                            label="⬇️ Download Processed Video",
+                            data=video_bytes,
+                            file_name=f"malaria_detected_{uploaded_video.name}",
+                            mime="video/mp4",
+                            type="primary"
+                        )
+                    
+                    # Clean up temp files
+                    import os
+                    try:
+                        os.unlink(input_path)
+                        os.unlink(output_path)
+                    except:
+                        pass
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing video: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
