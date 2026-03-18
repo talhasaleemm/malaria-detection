@@ -1,201 +1,195 @@
-import streamlit as st
-import requests
-from PIL import Image
+"""
+Streamlit Frontend for the Malaria Detection System.
+Provides a modern, responsive UI for clinical researchers.
+"""
+
 import io
+import os
+import tempfile
+import traceback
+from typing import Dict, Any, List
+
 import cv2
 import numpy as np
+import requests
+import streamlit as st
+from PIL import Image
 
-# API URL
-API_URL = "http://127.0.0.1:8000/predict"
+# System constants
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/predict")
+APP_TITLE = "Malaria Object Detection Pipeline"
 
-st.set_page_config(page_title="Malaria Object Detection", page_icon="🦟", layout="wide")
+st.set_page_config(page_title=APP_TITLE, page_icon="🧬", layout="wide")
 
-import tempfile
+def draw_detections(image: Image.Image, detections: List[Dict[str, Any]], conf_threshold: float) -> tuple[np.ndarray, int]:
+    """Draws bounding boxes over detected parasites based on model confidence."""
+    img_np = np.array(image)
+    count_parasitized = 0
+    
+    for det in detections:
+        conf = det.get('confidence', 0.0)
+        if conf < conf_threshold:
+            continue
+            
+        cls = det.get('class', 0)
+        cx, cy, w, h = det['bbox']
+        
+        start_point = (int(cx - w/2), int(cy - h/2))
+        end_point = (int(cx + w/2), int(cy + h/2))
+        
+        if cls == 0:  # Parasitized
+            color = (255, 65, 54)  # Vibrant Red
+            label = f"Parasitized {conf:.2f}"
+            count_parasitized += 1
+        else:
+            color = (46, 204, 64)  # Muted Green
+            label = f"Uninfected {conf:.2f}"
+            
+        cv2.rectangle(img_np, start_point, end_point, color, 2)
+        cv2.putText(
+            img_np, label, (start_point[0], max(0, start_point[1] - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
+        )
+        
+    return img_np, count_parasitized
 
-st.title("🦟 Malaria Parasite Detection (YOLOv11)")
-st.markdown("Professional Grade Object Detection System")
-
-tab1, tab2 = st.tabs(["Image Inference", "Video Inference"])
-
-with tab1:
+def process_static_slide() -> None:
+    """Manages the UI layout and API invocations for static image processing."""
     col1, col2 = st.columns([1, 1])
-
+    
     with col1:
-        st.header("Upload Microscopy Slide")
-        uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png", "jpeg"])
-
-        # Confidence Threshold Slider
-        confidence_threshold = st.slider("Confidence Threshold", min_value=0.0, max_value=1.0, value=0.25, step=0.05)
+        st.subheader("Microscopy Slide Ingestion")
+        uploaded_file = st.file_uploader("Upload high-resolution clinical slide...", type=["jpg", "png", "jpeg"])
+        confidence_threshold = st.slider(
+            "Detection Confidence Level", 
+            min_value=0.0, max_value=1.0, value=0.25, step=0.05,
+            help="Filters out bounding boxes below this confidence to minimize false positives."
+        )
 
     if uploaded_file is not None:
-        # Display uploaded image
-        image = Image.open(uploaded_file).convert("RGB")
-        
+        try:
+            image = Image.open(uploaded_file).convert("RGB")
+        except Exception:
+            st.error("Invalid image format provided.")
+            return
+
         with col1:
-            st.image(image, caption='Uploaded Image', use_column_width=True)
+            st.image(image, caption='Clinical Slide Input', use_column_width=True)
+            analyze_btn = st.button('Run AI Analysis', type="primary")
             
-        if st.button('Analyze Slide'):
-            with st.spinner('Detecting parasites...'):
+        if analyze_btn:
+            with st.spinner('Orchestrating AI Inference...'):
                 try:
-                    # Prepare payload
                     img_bytes = io.BytesIO()
                     image.save(img_bytes, format='JPEG')
                     img_bytes.seek(0)
                     
-                    # Send to API
-                    files = {'file': ('image.jpg', img_bytes, 'image/jpeg')}
-                    response = requests.post(API_URL, files=files)
+                    response = requests.post(API_URL, files={'file': ('image.jpg', img_bytes, 'image/jpeg')})
+                    response.raise_for_status()
                     
-                    if response.status_code == 200:
-                        results = response.json()
-                        detections = results.get("detections", [])
+                    results = response.json()
+                    detections = results.get("detections", [])
+                    
+                    annotated_img, count_parasitized = draw_detections(image, detections, confidence_threshold)
+                    
+                    with col2:
+                        st.subheader("Inference Results")
+                        st.image(annotated_img, caption='Object Detection Output', use_column_width=True)
+                        st.success(f"Diagnostics Complete: Identified **{count_parasitized}** Parasitized Cells.")
                         
-                        # Draw boxes
-                        img_np = np.array(image)
-                        
-                        count_parasitized = 0
-                        
-                        for det in detections:
-                            cls = det['class']
-                            conf = det['confidence']
-                            x, y, w, h = det['bbox']
-                            
-                            # Filter by confidence slider
-                            if conf < confidence_threshold:
-                                continue
-                            
-                            start_point = (int(x - w/2), int(y - h/2))
-                            end_point = (int(x + w/2), int(y + h/2))
-                            
-                            if cls == 0: # Parasitized
-                                color = (255, 0, 0) # Red
-                                label = f"Parasitized {conf:.2f}"
-                                count_parasitized += 1
-                            else:
-                                color = (0, 255, 0) # Green
-                                label = f"Uninfected {conf:.2f}"
-                                
-                            cv2.rectangle(img_np, start_point, end_point, color, 2)
-                            cv2.putText(img_np, label, (start_point[0], start_point[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                        
-                        with col2:
-                            st.header("Detection Results")
-                            st.image(img_np, caption=f'Processed Image ({count_parasitized} Parasites Detected)', use_column_width=True)
-                            st.success(f"Analysis Complete. Found {count_parasitized} Parasitized Cells.")
-                            
-                    else:
-                        st.error(f"Error from API: {response.text}")
-                        
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Microservice Connection Error: Ensure API at `{API_URL}` is running. Details: {e}")
                 except Exception as e:
-                    st.error(f"Connection Error: {e}. Is the FastAPI backend running?")
+                    st.error(f"Application Error: {str(e)}")
 
-with tab2:
-    st.header("🎥 Video Detection & Download")
-    st.markdown("Upload a microscopy video to detect parasites frame-by-frame and download the annotated result.")
+def process_video_stream() -> None:
+    """Manages the UI layout for processing continuous video frame streams."""
+    st.subheader("🎥 Real-time Video Stream Diagnostics")
+    st.markdown("Upload microscopy scans (video format) to perform temporal parasite tracking and counting.")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        uploaded_video = st.file_uploader("Choose a video...", type=["mp4", "avi", "mov"])
+        uploaded_video = st.file_uploader("Upload clinical scan routine...", type=["mp4", "avi", "mov"])
+        video_conf = st.slider("Detection Confidence Threshold", 0.0, 1.0, 0.25, 0.05, key="vid_conf")
         
-        # Video processing settings
-        video_confidence_threshold = st.slider(
-            "Detection Confidence Threshold", 
-            min_value=0.0, 
-            max_value=1.0, 
-            value=0.25, 
-            step=0.05,
-            key="video_conf"
-        )
-        
-        # Model selection
         model_options = {
-            "YOLOv11 Medium (Recommended)": "yolo11m.pt",
-            "YOLOv11 Nano (Faster)": "yolo11n.pt"
+            "YOLOv11 Medium (High Accuracy)": "yolo11m.pt",
+            "YOLOv11 Nano (Ultra Fast)": "yolo11n.pt"
         }
-        selected_model = st.selectbox("Select Model", list(model_options.keys()))
+        selected_model = st.selectbox("Select Inference Backbone", list(model_options.keys()))
         model_path = model_options[selected_model]
     
     if uploaded_video is not None:
-        # Read the uploaded video bytes once (to avoid stream consumption issues)
-        uploaded_video_bytes = uploaded_video.read()
+        video_bytes = uploaded_video.read()
         
         with col1:
-            st.video(uploaded_video_bytes)
-            st.caption("Preview: Original Uploaded Video")
-        
-        # Process button
-        if st.button("🔬 Process Video", type="primary"):
-            with st.spinner("Processing video... This may take a few minutes depending on video length."):
+            st.video(video_bytes)
+            
+        if st.button("🧪 Launch Video Processing", type="primary"):
+            with st.spinner("Analyzing micro-frames. This utilizes heavy computational resources..."):
                 try:
-                    # Import video processor
                     from video_processor import VideoProcessor
                     
-                    # Save uploaded video to temporary file
+                    # Store temporarily
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_input:
-                        tmp_input.write(uploaded_video_bytes)
+                        tmp_input.write(video_bytes)
                         input_path = tmp_input.name
-                    
-                    # Create output path
+                        
                     output_path = tempfile.NamedTemporaryFile(delete=False, suffix='_processed.mp4').name
                     
-                    # Initialize video processor
-                    processor = VideoProcessor(model_path, video_confidence_threshold)
-                    
-                    # Get video info first
+                    processor = VideoProcessor(model_path, video_conf)
                     video_info = processor.extract_video_info(input_path)
-                    st.info(f"📹 Video Info: {video_info['frame_count']} frames, {video_info['fps']} FPS, {video_info['duration_seconds']:.1f}s duration")
+                    st.info(f"Video Meta: {video_info['frame_count']} frames | {video_info['fps']} FPS")
                     
-                    # Create progress bar
                     progress_bar = st.progress(0)
                     progress_text = st.empty()
                     
-                    def update_progress(current, total):
-                        progress = current / total
-                        progress_bar.progress(progress)
-                        progress_text.text(f"Processing frame {current}/{total} ({progress*100:.1f}%)")
+                    def ui_callback(current: int, total: int):
+                        progress_bar.progress(current / total)
+                        progress_text.text(f"Inferencing: Frame {current}/{total}")
+                        
+                    stats = processor.process_video(input_path, output_path, progress_callback=ui_callback)
                     
-                    # Process video
-                    stats = processor.process_video(input_path, output_path, progress_callback=update_progress)
-                    
-                    # Clear progress indicators
                     progress_bar.empty()
                     progress_text.empty()
                     
-                    # Show results in col2
                     with col2:
-                        st.success("✅ Video Processing Complete!")
+                        st.success("✅ Analysis Complete!")
+                        st.metric("Total Parasites Tracked", stats['total_parasites'])
+                        st.metric("Avg Parasitemia/Frame", f"{stats['avg_parasites_per_frame']:.2f}")
                         
-                        # Display statistics
-                        st.metric("Total Parasites Detected", stats['total_parasites'])
-                        st.metric("Average Parasites/Frame", f"{stats['avg_parasites_per_frame']:.2f}")
-                        st.metric("Total Frames Processed", stats['total_frames'])
-                        
-                        # Show processed video
-                        with open(output_path, 'rb') as video_file:
-                            video_bytes = video_file.read()
-                        
-                        st.video(video_bytes)
-                        st.caption("Preview: Processed Video with Detections")
-                        
-                        # Download button
+                        with open(output_path, 'rb') as f:
+                            out_video = f.read()
+                        st.video(out_video)
                         st.download_button(
-                            label="⬇️ Download Processed Video",
-                            data=video_bytes,
-                            file_name=f"malaria_detected_{uploaded_video.name}",
-                            mime="video/mp4",
-                            type="primary"
+                            "⬇️ Export Clinical Video Asset", data=out_video,
+                            file_name=f"diagnostics_{uploaded_video.name}", mime="video/mp4", type="primary"
                         )
                     
-                    # Clean up temp files
-                    import os
-                    try:
-                        os.unlink(input_path)
-                        os.unlink(output_path)
-                    except:
-                        pass
+                    os.unlink(input_path)
+                    os.unlink(output_path)
                     
                 except Exception as e:
-                    st.error(f"❌ Error processing video: {str(e)}")
-                    import traceback
+                    st.error(f"Inference Pipeline Failure: {str(e)}")
                     st.code(traceback.format_exc())
+
+def main() -> None:
+    st.title("🧬 Next-Gen Malaria Detection Platform")
+    st.markdown(
+        """
+        Powered by **YOLOv11** & **SAHI** (Slicing Aided Hyper Inference). 
+        Engineered for precision clinical diagnostics with sub-cellular localization mechanics.
+        """
+    )
+    
+    tab_img, tab_vid = st.tabs(["Static Image Diagnostics", "Continuous Video Scans"])
+    
+    with tab_img:
+        process_static_slide()
+        
+    with tab_vid:
+        process_video_stream()
+
+if __name__ == "__main__":
+    main()
